@@ -1,16 +1,30 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// --- 1. SETTING WIFI & MQTT ---
-const char* ssid = "NAMA_WIFI_KAMU";       // Pastikan WiFi 2.4GHz
-const char* password = "PASSWORD_WIFI";    
-const char* mqtt_server = "broker.emqx.io";
-const int mqtt_port = 1883;
-const char* topic_status = "proyek/air/status_fauzan";
+// ==========================================
+// 1. SETTING WIFI KAMPUS
+// ==========================================
+const char* ssid = "ITS-WIFI-TW2"; 
+const char* password = "itssurabaya"; 
 
-// --- 2. SETTING PIN ---
-const int pinSensor = 15; // Sensor NPN
-const int pinBuzzer = 18; // Buzzer Alarm
+// ==========================================
+// 2. SETTING MQTT BROKER (DOSEN)
+// ==========================================
+const char* mqtt_server = "10.4.67.183"; 
+const int mqtt_port = 1883;
+const char* mqtt_user = "kelasb";        
+const char* mqtt_pass = "kelasb";        
+
+// ==========================================
+// 3. TOPIK (NRP KAMU)
+// ==========================================
+const char* topic_status = "b/5027141102/status"; 
+
+// ==========================================
+// 4. PIN KABEL
+// ==========================================
+const int pinSensor = 15; // Kabel Kuning Sensor
+const int pinBuzzer = 18; // Kaki Panjang (+) Buzzer
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -18,26 +32,35 @@ unsigned long lastMsg = 0;
 
 void setup_wifi() {
   delay(10);
+  Serial.println();
   Serial.print("Menghubungkan ke WiFi: ");
-  Serial.println(ssid);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  
+  int retry = 0;
+  while (WiFi.status() != WL_CONNECTED && retry < 20) {
     delay(500);
     Serial.print(".");
+    retry++;
   }
-  Serial.println("\nWiFi Terhubung!");
+  
+  if(WiFi.status() == WL_CONNECTED){
+    Serial.println("\n✅ WiFi Terhubung!");
+  } else {
+    Serial.println("\n⚠️ Masuk Mode OFFLINE.");
+  }
 }
 
 void reconnect() {
+  if(WiFi.status() != WL_CONNECTED) return;
   while (!client.connected()) {
-    Serial.print("Koneksi MQTT...");
-    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
-    if (client.connect(clientId.c_str())) {
-      Serial.println("Berhasil!");
+    Serial.print("Menghubungkan ke Server Dosen...");
+    String clientId = "Mhs-5027141102-" + String(random(0xffff), HEX);
+    if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
+      Serial.println("BERHASIL!");
     } else {
       Serial.print("Gagal, rc=");
       Serial.print(client.state());
-      delay(5000);
+      break; 
     }
   }
 }
@@ -45,11 +68,10 @@ void reconnect() {
 void setup() {
   Serial.begin(115200);
   
-  // Setup Sensor & Buzzer
-  pinMode(pinSensor, INPUT_PULLUP);
+  pinMode(pinSensor, INPUT_PULLUP); 
   pinMode(pinBuzzer, OUTPUT);
   
-  // Matikan buzzer saat awal nyala (biar gak kaget)
+  // Pastikan Buzzer Mati saat awal nyala
   digitalWrite(pinBuzzer, LOW); 
   
   setup_wifi();
@@ -57,44 +79,38 @@ void setup() {
 }
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!client.connected()) reconnect();
+    client.loop();
   }
-  client.loop();
 
-  // Kirim data & Cek Alarm setiap 2 detik
+  // --- PEMBACAAN SENSOR ---
+  int sensorState = digitalRead(pinSensor);
+
+  // ==========================================
+  // REVISI LOGIKA BUZZER (UTAMA)
+  // ==========================================
+  if (sensorState == HIGH) { 
+    // KONDISI: AIR HABIS / KERING
+    // Buzzer akan menyala terus sebagai alarm
+    digitalWrite(pinBuzzer, LOW); 
+  } 
+  else { 
+    // KONDISI: ADA AIR
+    // Buzzer mati total
+    digitalWrite(pinBuzzer, HIGH); 
+  }
+
+  // --- PENGIRIMAN DATA KE MQTT (TIAP 2 DETIK) ---
   unsigned long now = millis();
   if (now - lastMsg > 2000) {
     lastMsg = now;
     
-    int sensorState = digitalRead(pinSensor);
-    String msg;
-
-    // --- LOGIKA UTAMA ---
-    // NPN Active Low:
-    // LOW (0) = Kena Air (Aman)
-    // HIGH (1) = Kering (Bahaya/Habis)
-
-    if (sensorState == LOW) {
-      // KONDISI: ADA AIR
-      msg = "ADA AIR 🌊";
-      digitalWrite(pinBuzzer, LOW); // Matikan Buzzer 🔇
-    } 
-    else {
-      // KONDISI: KERING (GALON HABIS)
-      msg = "KERING ⛔";
-      
-      // Bunyikan Alarm (Beep pendek)
-      // Kita pakai tone pendek biar tidak mengganggu loop MQTT
-      digitalWrite(pinBuzzer, HIGH); 
-      delay(200); 
-      digitalWrite(pinBuzzer, LOW);
-      // (Buzzer akan bunyi 'Tit' setiap 2 detik sekali)
-    }
-
-    // Kirim ke Serial Monitor & HP
-    Serial.print("Status: ");
+    String msg = (sensorState == LOW) ? "AMAN: Ada Air 🌊" : "BAHAYA: Galon Habis! ⛔";
     Serial.println(msg);
-    client.publish(topic_status, msg.c_str());
+    
+    if (client.connected()) {
+      client.publish(topic_status, msg.c_str());
+    }
   }
 }
