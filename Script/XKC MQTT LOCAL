@@ -1,0 +1,88 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+// ==========================================
+// 1. SETTING KONEKSI
+// ==========================================
+const char* ssid = "myITS-WIFI"; // Atau gunakan Hotspot HP jika gagal
+const char* password = "itssurabaya"; 
+
+// IP Laptop kamu dari hasil ipconfig
+const char* mqtt_server = "10.125.150.33"; 
+const int mqtt_port = 1883;
+
+// ==========================================
+// 2. PIN & TOPIK
+// ==========================================
+const int pinSensor = 15; 
+const int pinBuzzer = 18; 
+const char* topic_status = "tes/galon/status"; 
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+unsigned long lastMsg = 0;
+
+void setup_wifi() {
+  delay(10);
+  Serial.print("\nMenghubungkan ke WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("\n✅ WiFi Terhubung!");
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Mencoba koneksi ke Broker Laptop...");
+    String clientId = "ESP32_Rayhan_" + String(random(0xffff), HEX);
+    
+    if (client.connect(clientId.c_str())) {
+      Serial.println("BERHASIL!");
+    } else {
+      Serial.print("Gagal, rc=");
+      Serial.print(client.state());
+      Serial.println(" Coba lagi dalam 5 detik...");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinSensor, INPUT_PULLUP); 
+  pinMode(pinBuzzer, OUTPUT);
+  
+  digitalWrite(pinBuzzer, LOW); // Mati saat start
+  
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+}
+
+void loop() {
+  if (!client.connected()) reconnect();
+  client.loop();
+
+  // --- PEMBACAAN SENSOR ---
+  int sensorState = digitalRead(pinSensor);
+
+  // --- LOGIKA BUZZER (FIXED) ---
+  if (sensorState == HIGH) { 
+    // KONDISI: AIR HABIS (Sensor tidak kena air)
+    digitalWrite(pinBuzzer, HIGH); // BUZZER NYALA
+  } 
+  else { 
+    // KONDISI: AMAN (Sensor kena air)
+    digitalWrite(pinBuzzer, LOW);  // BUZZER MATI
+  }
+
+  // --- PENGIRIMAN DATA MQTT (TIAP 2 DETIK) ---
+  unsigned long now = millis();
+  if (now - lastMsg > 2000) {
+    lastMsg = now;
+    String statusStr = (sensorState == LOW) ? "AMAN: Ada Air" : "BAHAYA: Galon Habis";
+    
+    Serial.println("Publish: " + statusStr);
+    client.publish(topic_status, statusStr.c_str());
+  }
+}
