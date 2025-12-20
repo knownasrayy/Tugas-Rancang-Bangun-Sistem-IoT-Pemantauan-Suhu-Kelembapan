@@ -16,7 +16,7 @@ const char* mqtt_user = "kelasb";
 const char* mqtt_pass = "kelasb";        
 
 // ==========================================
-// 3. TOPIK (NRP KAMU)
+// 3. TOPIK 5027241102
 // ==========================================
 const char* topic_status = "b/5027141102/status"; 
 
@@ -88,7 +88,7 @@ void loop() {
   int sensorState = digitalRead(pinSensor);
 
   // ==========================================
-  // REVISI LOGIKA BUZZER (UTAMA)
+  // LOGIKA BUZZER (UTAMA)
   // ==========================================
   if (sensorState == HIGH) { 
     // KONDISI: AIR HABIS / KERING
